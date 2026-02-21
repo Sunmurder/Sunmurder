@@ -2,13 +2,14 @@
   "name": "planning-ux",
   "private": true,
   "scripts": {
-    "dev:server": "cd server && npm run dev",
+    "dev:server": "cd server-py && python3 main.py",
     "dev:client": "cd client && npm run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build:server": "cd server && npm run build",
     "build:client": "cd client && npm run build",
-    "build": "npm run build:server && npm run build:client",
-    "install:all": "cd server && npm install && cd ../client && npm install"
+    "build": "npm run build:client",
+    "install:server": "cd server-py && pip3 install -r requirements.txt",
+    "install:client": "cd client && npm install",
+    "install:all": "npm run install:server && npm run install:client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
