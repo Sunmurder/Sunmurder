@@ -1,4 +1,4 @@
-import type { EngineInfo, WorkspaceInfo } from '../../../shared/types';
+import type { EngineInfo, WorkspaceInfo, ModelInfo } from '../../../shared/types';
 
 interface Props {
   engines: EngineInfo[];
@@ -7,6 +7,11 @@ interface Props {
   workspaces: WorkspaceInfo[];
   selectedWorkspace: string;
   onSelectWorkspace: (id: string) => void;
+  models: ModelInfo[];
+  selectedModel: string;
+  onSelectModel: (id: string) => void;
+  showModels: boolean;
+  onConnectClick?: () => void;
 }
 
 export function ConnectionPanel({
@@ -16,8 +21,14 @@ export function ConnectionPanel({
   workspaces,
   selectedWorkspace,
   onSelectWorkspace,
+  models,
+  selectedModel,
+  onSelectModel,
+  showModels,
+  onConnectClick,
 }: Props) {
   const engine = engines.find((e) => e.id === selectedEngine);
+  const needsConnect = engine && !engine.connected && engine.type === 'anaplan';
 
   return (
     <div className="connection-panel">
@@ -36,7 +47,13 @@ export function ConnectionPanel({
         </select>
       </div>
 
-      {selectedEngine && (
+      {needsConnect && (
+        <button className="btn-connect" onClick={onConnectClick}>
+          Connect to Anaplan
+        </button>
+      )}
+
+      {engine?.connected && selectedEngine && (
         <div className="field">
           <label>Workspace</label>
           <select
@@ -47,6 +64,23 @@ export function ConnectionPanel({
             {workspaces.map((ws) => (
               <option key={ws.id} value={ws.id}>
                 {ws.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {showModels && selectedWorkspace && models.length > 0 && (
+        <div className="field">
+          <label>Model</label>
+          <select
+            value={selectedModel}
+            onChange={(e) => onSelectModel(e.target.value)}
+          >
+            <option value="">Select model...</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
               </option>
             ))}
           </select>

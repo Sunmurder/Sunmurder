@@ -16,9 +16,11 @@ from models import (
     Dimension,
     DimensionItem,
     LineItemMeta,
+    ModelInfo,
     ModuleDataRequest,
     ModuleDataResponse,
     ModuleMeta,
+    NumericFilterOp,
     ParentFilter,
     WorkspaceInfo,
     WorkspaceSchema,
@@ -41,10 +43,32 @@ def _map_anaplan_format(fmt: str) -> str:
     return "text"
 
 
+def _apply_numeric_filter(value: float | None, op: NumericFilterOp, low: float | None, high: float | None) -> bool:
+    if value is None:
+        return False
+    if op == NumericFilterOp.ZERO:
+        return value == 0
+    if op == NumericFilterOp.NON_ZERO:
+        return value != 0
+    if low is None:
+        return True
+    if op == NumericFilterOp.GTE:
+        return value >= low
+    if op == NumericFilterOp.GT:
+        return value > low
+    if op == NumericFilterOp.LTE:
+        return value <= low
+    if op == NumericFilterOp.LT:
+        return value < low
+    if op == NumericFilterOp.BETWEEN:
+        return low <= value <= (high if high is not None else low)
+    return True
+
+
 class AnaplanAdapter(EngineAdapter):
     def __init__(self) -> None:
         self._auth_token: str | None = None
-        self._models: list[dict] = []
+        self._workspace_cache: list[dict] = []
         self._config: dict[str, str | None] = {}
         self._schema_cache: dict[str, WorkspaceSchema] = {}
         self._client = httpx.AsyncClient(timeout=60.0)
@@ -77,10 +101,13 @@ class AnaplanAdapter(EngineAdapter):
             raise ValueError(
                 "Anaplan adapter requires ANAPLAN_EMAIL + ANAPLAN_PASSWORD or ANAPLAN_TOKEN"
             )
+        # Clear caches on reconnect
+        self._workspace_cache.clear()
+        self._schema_cache.clear()
 
     async def disconnect(self) -> None:
         self._auth_token = None
-        self._models.clear()
+        self._workspace_cache.clear()
         self._schema_cache.clear()
 
     def is_connected(self) -> bool:
@@ -92,25 +119,21 @@ class AnaplanAdapter(EngineAdapter):
         self._ensure_connected()
 
         data = await self._api_get("/workspaces")
-        result: list[WorkspaceInfo] = []
-        for ws in data.get("workspaces", []):
-            models_data = await self._api_get(f"/workspaces/{ws['id']}/models")
-            for model in models_data.get("models", []):
-                self._models.append(
-                    {
-                        "id": model["id"],
-                        "name": model["name"],
-                        "workspace_id": ws["id"],
-                        "workspace_name": ws["name"],
-                    }
-                )
-                result.append(
-                    WorkspaceInfo(
-                        id=f"{ws['id']}:{model['id']}",
-                        name=f"{ws['name']} / {model['name']}",
-                    )
-                )
-        return result
+        self._workspace_cache = data.get("workspaces", [])
+        return [
+            WorkspaceInfo(id=ws["id"], name=ws["name"])
+            for ws in self._workspace_cache
+        ]
+
+    # ── Models (Anaplan-specific: models within a workspace) ──
+
+    async def get_models(self, workspace_id: str) -> list[ModelInfo]:
+        self._ensure_connected()
+        data = await self._api_get(f"/workspaces/{workspace_id}/models")
+        return [
+            ModelInfo(id=m["id"], name=m["name"])
+            for m in data.get("models", [])
+        ]
 
     # ── Schema ──
 
@@ -197,6 +220,27 @@ class AnaplanAdapter(EngineAdapter):
             ]
         return items
 
+    # ── Line item values ──
+
+    async def get_line_item_values(
+        self,
+        workspace_id: str,
+        module_id: str,
+        line_item_id: str,
+        version: str,
+    ) -> list[str]:
+        """Get distinct text values for a line item by exporting module data."""
+        self._ensure_connected()
+        # Use a minimal data fetch to extract unique values
+        request = ModuleDataRequest(version=version, page=1, page_size=999999)
+        data = await self.get_module_data(workspace_id, module_id, request)
+        values: set[str] = set()
+        for row in data.rows:
+            val = row.cells.get(line_item_id)
+            if val is not None and isinstance(val, str) and val.strip():
+                values.add(str(val))
+        return sorted(values)
+
     # ── Data ──
 
     async def get_module_data(
@@ -265,8 +309,6 @@ class AnaplanAdapter(EngineAdapter):
                 )
 
         # Parse rows
-        page = request.page
-        page_size = request.page_size
         data_lines = all_lines[1:]
         rows: list[DataRow] = []
         for idx, line in enumerate(data_lines):
@@ -276,15 +318,18 @@ class AnaplanAdapter(EngineAdapter):
                 col = columns[i]
                 val = values[i] if i < len(values) else None
                 if col.type == "value" and val is not None:
-                    try:
-                        cells[col.key] = float(val)
-                    except ValueError:
+                    if col.format in ("number", "currency", "percentage"):
+                        try:
+                            cells[col.key] = float(val)
+                        except ValueError:
+                            cells[col.key] = val
+                    else:
                         cells[col.key] = val
                 else:
                     cells[col.key] = val
             rows.append(DataRow(id=f"anaplan_row_{idx}", cells=cells))
 
-        # Client-side filtering
+        # Client-side filtering: dimension filters
         filtered = rows
         for dim_id, selected_ids in request.filters.items():
             if not selected_ids:
@@ -300,7 +345,32 @@ class AnaplanAdapter(EngineAdapter):
                 if row.cells.get(dim_id) and str(row.cells[dim_id]) in selected_names
             ]
 
+        # Client-side filtering: line item text filters
+        for li_id, selected_values in request.line_item_filters.items():
+            if not selected_values:
+                continue
+            filtered = [
+                row
+                for row in filtered
+                if row.cells.get(li_id) is not None and str(row.cells[li_id]) in selected_values
+            ]
+
+        # Client-side filtering: numeric filters
+        for nf in request.numeric_filters:
+            filtered = [
+                row
+                for row in filtered
+                if _apply_numeric_filter(
+                    _to_float(row.cells.get(nf.line_item_id)),
+                    nf.operator,
+                    nf.value,
+                    nf.value_high,
+                )
+            ]
+
         total_rows = len(filtered)
+        page = request.page
+        page_size = request.page_size
         start = (page - 1) * page_size
         paged = filtered[start : start + page_size]
 
@@ -413,3 +483,12 @@ class AnaplanAdapter(EngineAdapter):
         if resp.status_code >= 400:
             raise ValueError(f"Anaplan API POST {path} failed: {resp.status_code}")
         return resp.json()
+
+
+def _to_float(val: str | int | float | None) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None

@@ -55,6 +55,15 @@ class EngineAdapter(ABC):
     ) -> list[DimensionItem]: ...
 
     @abstractmethod
+    async def get_line_item_values(
+        self,
+        workspace_id: str,
+        module_id: str,
+        line_item_id: str,
+        version: str,
+    ) -> list[str]: ...
+
+    @abstractmethod
     async def get_module_data(
         self,
         workspace_id: str,

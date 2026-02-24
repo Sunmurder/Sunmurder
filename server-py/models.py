@@ -6,6 +6,7 @@ Internally we use snake_case (Python convention), but serialization produces cam
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -71,8 +72,27 @@ class WorkspaceSchema(CamelModel):
 # ── Data fetching / write-back ──
 
 
+class NumericFilterOp(str, Enum):
+    GTE = "gte"
+    GT = "gt"
+    LTE = "lte"
+    LT = "lt"
+    ZERO = "zero"
+    NON_ZERO = "non_zero"
+    BETWEEN = "between"
+
+
+class NumericFilter(CamelModel):
+    line_item_id: str
+    operator: NumericFilterOp
+    value: Optional[float] = None
+    value_high: Optional[float] = None
+
+
 class ModuleDataRequest(CamelModel):
     filters: dict[str, list[str]] = {}
+    line_item_filters: dict[str, list[str]] = {}
+    numeric_filters: list[NumericFilter] = []
     version: str = "actual"
     line_item_id: Optional[str] = None
     page: int = 1
@@ -145,3 +165,28 @@ class WriteCellsRequest(CamelModel):
 class ParentFilter(CamelModel):
     dimension_id: str
     item_ids: list[str]
+
+
+# ── Saved connections ──
+
+
+class SavedConnection(CamelModel):
+    id: str
+    name: str
+    engine_id: str
+    token: str
+    created_at: str
+
+
+class SaveConnectionRequest(CamelModel):
+    name: str
+    engine_id: str
+    token: str
+
+
+# ── Model info (for engines that expose models within workspaces) ──
+
+
+class ModelInfo(CamelModel):
+    id: str
+    name: str

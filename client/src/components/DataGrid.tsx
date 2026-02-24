@@ -84,7 +84,11 @@ export function DataGrid({ columns, rows, onCellEdit, loading }: Props) {
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={col.type === 'value' ? 'value-col' : ''}
+                  className={
+                    col.type === 'value'
+                      ? col.format === 'text' ? 'text-col' : 'value-col'
+                      : ''
+                  }
                 >
                   {col.label}
                 </th>
@@ -123,10 +127,12 @@ export function DataGrid({ columns, rows, onCellEdit, loading }: Props) {
                     );
                   }
 
+                  const cellClass = col.format === 'text' ? 'text-cell' : 'value-cell';
+
                   return (
                     <td
                       key={col.key}
-                      className={`value-cell ${col.editable ? 'editable' : ''}`}
+                      className={`${cellClass} ${col.editable ? 'editable' : ''}`}
                       onDoubleClick={
                         col.editable
                           ? () => startEdit(row.id, col.key, value)
