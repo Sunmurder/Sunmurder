@@ -41,11 +41,26 @@ export interface WorkspaceSchema {
   versions: DimensionItem[];
 }
 
+// ── Numeric filter ──
+
+export type NumericFilterOp = 'gte' | 'gt' | 'lte' | 'lt' | 'zero' | 'non_zero' | 'between';
+
+export interface NumericFilterDef {
+  lineItemId: string;
+  operator: NumericFilterOp;
+  value?: number;
+  valueHigh?: number;
+}
+
 // ── Data fetching / write-back ──
 
 export interface ModuleDataRequest {
   /** dimensionId → selected item IDs */
   filters: Record<string, string[]>;
+  /** lineItemId → selected text values */
+  lineItemFilters?: Record<string, string[]>;
+  /** numeric filters on value line items */
+  numericFilters?: NumericFilterDef[];
   version: string;
   /** Optional: restrict to one line item; omit to get all */
   lineItemId?: string;
@@ -99,4 +114,19 @@ export interface EngineInfo {
 export interface WorkspaceInfo {
   id: string;
   name: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
+// ── Saved connections ──
+
+export interface SavedConnection {
+  id: string;
+  name: string;
+  engineId: string;
+  createdAt: string;
+  tokenPreview: string;
 }

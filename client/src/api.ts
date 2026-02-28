@@ -1,11 +1,14 @@
 import type {
   EngineInfo,
   WorkspaceInfo,
+  ModelInfo,
   WorkspaceSchema,
   DimensionItem,
   ModuleDataResponse,
   CellWrite,
   CellWriteResult,
+  SavedConnection,
+  NumericFilterDef,
 } from '../../shared/types';
 
 const BASE = '/api';
@@ -36,10 +39,42 @@ export function connectEngine(
   });
 }
 
+// ── Saved Connections ──
+
+export function listConnections(): Promise<SavedConnection[]> {
+  return fetchJson(`${BASE}/connections`);
+}
+
+export function saveConnection(data: {
+  name: string;
+  engineId: string;
+  token: string;
+}): Promise<{ id: string; ok: boolean }> {
+  return fetchJson(`${BASE}/connections`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteConnection(connId: string): Promise<{ ok: boolean }> {
+  return fetchJson(`${BASE}/connections/${connId}`, { method: 'DELETE' });
+}
+
+export function useSavedConnection(connId: string): Promise<{ ok: boolean }> {
+  return fetchJson(`${BASE}/connections/${connId}/use`, { method: 'POST' });
+}
+
 // ── Workspaces ──
 
 export function listWorkspaces(engineId: string): Promise<WorkspaceInfo[]> {
   return fetchJson(`${BASE}/engines/${engineId}/workspaces`);
+}
+
+// ── Models (for Anaplan-style engines with models inside workspaces) ──
+
+export function listModels(engineId: string, workspaceId: string): Promise<ModelInfo[]> {
+  return fetchJson(`${BASE}/engines/${engineId}/workspaces/${workspaceId}/models`);
 }
 
 // ── Schema ──
@@ -70,6 +105,21 @@ export function getDimensionItems(
   );
 }
 
+// ── Line item values (distinct text values for filtering) ──
+
+export function getLineItemValues(
+  engineId: string,
+  workspaceId: string,
+  moduleId: string,
+  lineItemId: string,
+  version: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({ version });
+  return fetchJson(
+    `${BASE}/engines/${engineId}/workspaces/${workspaceId}/modules/${moduleId}/line-items/${lineItemId}/values?${params}`,
+  );
+}
+
 // ── Module data ──
 
 export function getModuleData(
@@ -78,6 +128,8 @@ export function getModuleData(
   moduleId: string,
   opts: {
     filters?: Record<string, string[]>;
+    lineItemFilters?: Record<string, string[]>;
+    numericFilters?: NumericFilterDef[];
     version?: string;
     lineItemId?: string;
     page?: number;
@@ -86,6 +138,12 @@ export function getModuleData(
 ): Promise<ModuleDataResponse> {
   const params = new URLSearchParams();
   if (opts.filters) params.set('filters', JSON.stringify(opts.filters));
+  if (opts.lineItemFilters && Object.keys(opts.lineItemFilters).length > 0) {
+    params.set('lineItemFilters', JSON.stringify(opts.lineItemFilters));
+  }
+  if (opts.numericFilters && opts.numericFilters.length > 0) {
+    params.set('numericFilters', JSON.stringify(opts.numericFilters));
+  }
   if (opts.version) params.set('version', opts.version);
   if (opts.lineItemId) params.set('lineItemId', opts.lineItemId);
   if (opts.page) params.set('page', String(opts.page));
